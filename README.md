@@ -593,6 +593,89 @@ without changing its shape is not breaking, and struct fields are compared by
 name rather than position. Exit code 1 when anything is breaking; `--json`
 prints `{"old", "new", "breaking", "changes": [{"breaking", "subject", "detail"}]}`.
 
+### `soroprobe compare <contract-id> --testnet <profile> --mainnet <profile>`
+
+Compares the same contract on two configured networks, so a testnet
+deployment can be checked against mainnet before it ships.
+
+Each side's endpoint and passphrase come from a config profile. `--rpc-url`
+and `--network-passphrase` name exactly one network, so they cannot be used
+here; everything else — source account, thresholds, timeout — follows the usual
+precedence and is applied to both sides.
+
+```
+$ soroprobe compare CCLV… --testnet testnet --mainnet mainnet --fn decimals
+compare testnet vs mainnet
+
+contracts
+  testnet          CCLV77FY…
+  mainnet          CCLV77FY…
+
+wasm
+  testnet          8608bb30…
+  mainnet          8608bb30…
+  MATCH  the deployed Wasm is the same on both networks
+
+state entries
+  ENTRY              testnet                    mainnet                    VERDICT
+  instance           healthy (58912 ledgers)    warning (50210 ledgers)    DIFFERENT
+  code               healthy (24268 ledgers)    healthy (60110 ledgers)    MATCH
+
+read-only calls
+  CALL           testnet                    mainnet                    VERDICT
+  decimals       success, return 7          success, return 7          MATCH
+
+result MATCH  (1 other difference(s) highlighted above)
+```
+
+Three things are compared:
+
+- **Wasm.** Equal hashes mean the same build is deployed. Two Stellar Asset
+  Contracts count as a match, because the host implements both and there is no
+  Wasm entry to hash. This is the verdict the exit code reflects.
+- **State entry TTLs.** The instance, the code entry and any `--key` data
+  entries are read on both networks. Remaining ledger counts always differ
+  because the chains are at different heights, so a difference is highlighted
+  when the **health status** differs, not the raw count.
+- **Read-only calls.** `--fn` runs one call; `--calls <file>` runs several:
+
+  ```json
+  {"calls": [
+    {"name": "decimals", "function": "decimals"},
+    {"name": "symbol", "function": "symbol"}
+  ]}
+  ```
+
+  Each call's success and decoded return value are compared on both networks.
+  Unknown fields are rejected and call names must be unique.
+
+| Flag | Description |
+| --- | --- |
+| `--testnet <profile>` | Config profile for the first network. Required. |
+| `--mainnet <profile>` | Config profile for the second network. Required. |
+| `--testnet-contract <id>` | Contract id on the first network. Defaults to the positional id. |
+| `--mainnet-contract <id>` | Contract id on the second network. Defaults to the positional id. |
+| `--fn <name>` | Read-only function to simulate on both networks. |
+| `--arg <spec>` | Argument for `--fn`, in `type:value` form. Repeatable. |
+| `--calls <path>` | JSON file of calls to run on both networks (`-` reads stdin). |
+| `--key <spec>` | A data key whose TTL should be compared. Repeatable. |
+| `--key-file <path>` | A file listing data keys, combined with `--key`. |
+| `--durability <d>` | Durability for `--key` lookups: `persistent` (default) or `temporary`. |
+| `--format text\|json` | Output format. `--json` also selects JSON. |
+| `--report <path>` | Also write the JSON result to this file, for a CI artifact. |
+
+**Exit codes:** 0 when the Wasm hashes match, 1 when they do not (including
+when one side is not deployed), and 2 when SoroProbe could not run. TTL and call
+differences are highlighted but do not change the exit code: the verdict is
+about the code being the same deployment. Both profiles must resolve to a
+different RPC endpoint and network passphrase, so a comparison cannot silently
+probe the same network twice.
+
+The positional contract address is used on both networks unless overridden,
+which suits a deterministic deployment: a contract's address is derived from
+its deployer and salt, so the same deployment usually lands at the same address
+on both chains.
+
 ### `soroprobe balance <token> <address>...`
 
 Reads a token's balances, formatted with the token's decimals and symbol, instead

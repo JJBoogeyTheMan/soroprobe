@@ -215,6 +215,24 @@ func Load(path string) (Config, error) {
 // then the profile named by profileName (or SOROPROBE_PROFILE if empty),
 // then the environment.
 func LoadWithProfile(path string, profileName string) (Config, error) {
+	return load(path, profileName, true)
+}
+
+// LoadNetworkProfile builds the configuration for one named network profile.
+//
+// It behaves like LoadWithProfile except that RPC_URL and NETWORK_PASSPHRASE
+// are not read from the environment. Those two variables name exactly one
+// network, so letting them win would point every side of `compare` at the same
+// endpoint. Everything else (timeout, source account, thresholds, logging)
+// still comes from the environment as usual.
+func LoadNetworkProfile(path string, profileName string) (Config, error) {
+	if profileName == "" {
+		return Config{}, errors.New("a profile name is required to select a network")
+	}
+	return load(path, profileName, false)
+}
+
+func load(path string, profileName string, networkEnv bool) (Config, error) {
 	cfg := Default()
 
 	if profileName == "" {
@@ -238,7 +256,7 @@ func LoadWithProfile(path string, profileName string) (Config, error) {
 			if profileName != "" {
 				return cfg, fmt.Errorf("profile %q requested but no config file found", profileName)
 			}
-			if err := applyEnv(&cfg); err != nil {
+			if err := applyEnvWith(&cfg, networkEnv); err != nil {
 				return cfg, err
 			}
 			return cfg, nil
@@ -248,7 +266,7 @@ func LoadWithProfile(path string, profileName string) (Config, error) {
 	if err := applyFileWithProfile(&cfg, path, explicit, profileName); err != nil {
 		return cfg, err
 	}
-	if err := applyEnv(&cfg); err != nil {
+	if err := applyEnvWith(&cfg, networkEnv); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
@@ -365,9 +383,14 @@ func applyFileWithProfile(cfg *Config, path string, required bool, profileName s
 	return nil
 }
 
-func applyEnv(cfg *Config) error {
-	setString(&cfg.RPCURL, lookup(EnvRPCURL))
-	setString(&cfg.NetworkPassphrase, lookup(EnvNetworkPassphrase))
+// applyEnvWith applies environment settings. networkEnv controls the two
+// variables that name a single network, so a multi-network command can read
+// them from each profile instead.
+func applyEnvWith(cfg *Config, networkEnv bool) error {
+	if networkEnv {
+		setString(&cfg.RPCURL, lookup(EnvRPCURL))
+		setString(&cfg.NetworkPassphrase, lookup(EnvNetworkPassphrase))
+	}
 	setString(&cfg.SourceAccount, lookup(EnvSourceAccount))
 	setString(&cfg.HTTPAddr, lookup(EnvHTTPAddr))
 	if err := setUint32FromEnv(&cfg.HTTPRateLimitPerMinute, EnvHTTPRateLimitPerMinute); err != nil {
